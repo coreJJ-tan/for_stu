@@ -98,3 +98,36 @@ struct tty_struct {
 };
 
 
+struct tty_driver {
+	int	magic;		/* magic number for this structure */
+	struct kref kref;	/* Reference management */
+	struct cdev *cdevs;
+	struct module	*owner;
+	const char	*driver_name;
+	const char	*name;
+	int	name_base;	/* offset of printed name */
+	int	major;		/* major device number */
+	int	minor_start;	/* start of minor device number */
+	unsigned int	num;	/* number of devices allocated */
+	short	type;		/* type of tty driver */
+	short	subtype;	/* subtype of tty driver */
+	struct ktermios init_termios; /* Initial termios */
+	unsigned long	flags;		/* tty driver flags */
+	struct proc_dir_entry *proc_entry; /* /proc fs entry */
+	struct tty_driver *other; /* only used for the PTY driver */
+
+	/*
+	 * Pointer to the tty data structures
+	 */
+	struct tty_struct **ttys;
+	struct tty_port **ports;
+	struct ktermios **termios;
+	void *driver_state;
+
+	/*
+	 * Driver methods
+	 */
+
+	const struct tty_operations *ops;
+	struct list_head tty_drivers;
+};
