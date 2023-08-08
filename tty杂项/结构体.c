@@ -131,3 +131,51 @@ struct tty_driver {
 	const struct tty_operations *ops;
 	struct list_head tty_drivers;
 };
+struct tty_port {
+    struct tty_bufhead  buf;        /* Locked internally */
+    struct tty_struct   *tty;       /* Back pointer */
+    struct tty_struct   *itty;      /* internal back ptr */
+    const struct tty_port_operations *ops;  /* Port operations */
+    spinlock_t      lock;       /* Lock protecting tty field */
+    int         blocked_open;   /* Waiting to open */
+    int         count;      /* Usage count */
+    wait_queue_head_t   open_wait;  /* Open waiters */
+    wait_queue_head_t   close_wait; /* Close waiters */
+    wait_queue_head_t   delta_msr_wait; /* Modem status change */
+    unsigned long       flags;      /* TTY flags ASY_*/
+    unsigned char       console:1,  /* port is a console */
+                low_latency:1;  /* optional: tune for latency */
+    struct mutex        mutex;      /* Locking */
+    struct mutex        buf_mutex;  /* Buffer alloc lock */
+    unsigned char       *xmit_buf;  /* Optional buffer */
+    unsigned int        close_delay;    /* Close port delay */
+    unsigned int        closing_wait;   /* Delay for output */
+    int         drain_delay;    /* Set to zero if no pure time
+                           based drain is needed else
+                           set to size of fifo */
+    struct kref     kref;       /* Ref counter */
+};
+struct tty_bufhead {
+    struct tty_buffer *head;    /* Queue head */
+    struct work_struct work;
+    struct mutex       lock;
+    atomic_t       priority;
+    struct tty_buffer sentinel;
+    struct llist_head free;     /* Free queue head */
+    atomic_t       mem_used;    /* In-use buffers excluding free list */
+    int        mem_limit;
+    struct tty_buffer *tail;    /* Active buffer */
+};
+struct tty_buffer {
+    union {
+        struct tty_buffer *next;
+        struct llist_node free;
+    };
+    int used;
+    int size;
+    int commit;
+    int read;
+    int flags;
+    /* Data points here */
+    unsigned long data[0];
+};

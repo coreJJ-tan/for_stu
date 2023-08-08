@@ -284,3 +284,194 @@ static int tty_ldisc_open(struct tty_struct *tty, struct tty_ldisc *ld)
 	}
 	return 0;
 }
+
+/**
+ *	flush_to_ldisc
+ *	@work: tty structure passed from work queue.
+ *
+ *	This routine is called out of the software interrupt to flush data from the buffer chain to the line discipline.
+ *	The receive_buf method is single threaded for each tty instance.
+ *
+ *	Locking: takes buffer lock to ensure single-threaded flip buffer
+ *		 'consumer'
+ */
+
+static void flush_to_ldisc(struct work_struct *work)
+{
+	struct tty_port *port = container_of(work, struct tty_port, buf.work);
+	struct tty_bufhead *buf = &port->buf;
+	struct tty_struct *tty;
+	struct tty_ldisc *disc;
+
+	tty = port->itty; // port->itty 是在哪里被初始化的？
+	if (tty == NULL)
+		return;
+
+	disc = tty_ldisc_ref(tty);
+	if (disc == NULL)
+		return;
+
+	mutex_lock(&buf->lock);
+
+	while (1) {
+		struct tty_buffer *head = buf->head;
+		struct tty_buffer *next;
+		int count;
+
+		/* Ldisc or user is trying to gain exclusive access */
+		if (atomic_read(&buf->priority))
+			break;
+
+		next = head->next;
+		/* paired w/ barrier in __tty_buffer_request_room();
+		 * ensures commit value read is not stale if the head
+		 * is advancing to the next buffer
+		 */
+		smp_rmb();
+		count = head->commit - head->read;
+		if (!count) { // count = 0 表明第一个 head 缓冲区已经刷新完毕
+			if (next == NULL) {
+				check_other_closed(tty);
+				break;
+			}
+			buf->head = next;	// 获取第二个 head 缓冲区
+			tty_buffer_free(port, head);
+			continue;	// 继续刷新第二个缓冲区的数据
+		}
+
+		count = receive_buf(tty, head, count);
+		if (!count)
+			break;
+	}
+
+	mutex_unlock(&buf->lock);
+
+	tty_ldisc_deref(disc);
+}
+static int receive_buf(struct tty_struct *tty, struct tty_buffer *head, int count)
+{
+	struct tty_ldisc *disc = tty->ldisc;
+	unsigned char *p = char_buf_ptr(head, head->read);
+	char	      *f = NULL;
+
+	if (~head->flags & TTYB_NORMAL) // tty_buffer 的 TTYB_NORMAL 标志没有被设置，说明缓冲区保存有字符的标志
+		f = flag_buf_ptr(head, head->read);
+
+	if (disc->ops->receive_buf2)
+		count = disc->ops->receive_buf2(tty, p, f, count); // 优先使用 ->receive_buf2() 进行刷新， 在 N_TTY 线路规程中被指定为 n_tty_receive_buf2() 函数
+	else {
+		count = min_t(int, count, tty->receive_room);
+		if (count)
+			disc->ops->receive_buf(tty, p, f, count); //  在 N_TTY 线路规程中被指定为 n_tty_receive_buf() 函数
+	}
+	head->read += count;
+	return count; // 返回本次刷新的字节数
+}
+static void n_tty_receive_buf(struct tty_struct *tty, const unsigned char *cp, char *fp, int count)
+{
+	n_tty_receive_buf_common(tty, cp, fp, count, 0);
+}
+static int n_tty_receive_buf2(struct tty_struct *tty, const unsigned char *cp, char *fp, int count)
+{
+	return n_tty_receive_buf_common(tty, cp, fp, count, 1);
+}
+/**
+ *	n_tty_receive_buf_common	-	process input
+ *	@tty: device to receive input
+ *	@cp: input chars
+ *	@fp: flags for each char (if NULL, all chars are TTY_NORMAL)
+ *	@count: number of input chars in @cp
+ *
+ *	Called by the terminal driver when a block of characters has
+ *	been received. This function must be called from soft contexts
+ *	not from interrupt context. The driver is responsible for making
+ *	calls one at a time and in order (or using flush_to_ldisc)
+ *
+ *	Returns the # of input chars from @cp which were processed.
+ *
+ *	In canonical mode, the maximum line length is 4096 chars (including
+ *	the line termination char); lines longer than 4096 chars are
+ *	truncated. After 4095 chars, input data is still processed but
+ *	not stored. Overflow processing ensures the tty can always
+ *	receive more input until at least one line can be read.
+ *
+ *	In non-canonical mode, the read buffer will only accept 4095 chars;
+ *	this provides the necessary space for a newline char if the input
+ *	mode is switched to canonical.
+ *
+ *	Note it is possible for the read buffer to _contain_ 4096 chars
+ *	in non-canonical mode: the read buffer could already contain the
+ *	maximum canon line of 4096 chars when the mode is switched to
+ *	non-canonical.
+ *
+ *	n_tty_receive_buf()/producer path:
+ *		claims non-exclusive termios_rwsem
+ *		publishes commit_head or canon_head
+ */
+static int n_tty_receive_buf_common(struct tty_struct *tty, const unsigned char *cp, char *fp, int count, int flow)
+{
+	struct n_tty_data *ldata = tty->disc_data;
+	int room, n, rcvd = 0, overflow;
+
+	down_read(&tty->termios_rwsem);
+
+	while (1) {
+		/*
+		 * When PARMRK is set, each input char may take up to 3 chars
+		 * in the read buf; reduce the buffer space avail by 3x
+		 *
+		 * If we are doing input canonicalization, and there are no
+		 * pending newlines, let characters through without limit, so
+		 * that erase characters will be handled.  Other excess
+		 * characters will be beeped.
+		 *
+		 * paired with store in *_copy_from_read_buf() -- guarantees
+		 * the consumer has loaded the data in read_buf up to the new
+		 * read_tail (so this producer will not overwrite unread data)
+		 */
+		size_t tail = smp_load_acquire(&ldata->read_tail);
+
+		room = N_TTY_BUF_SIZE - (ldata->read_head - tail);
+		if (I_PARMRK(tty))
+			room = (room + 2) / 3;
+		room--;
+		if (room <= 0) {
+			overflow = ldata->icanon && ldata->canon_head == tail;
+			if (overflow && room < 0)
+				ldata->read_head--;
+			room = overflow;
+			ldata->no_room = flow && !room;
+		} else
+			overflow = 0;
+
+		n = min(count, room);
+		if (!n)
+			break;
+
+		/* ignore parity errors if handling overflow */
+		if (!overflow || !fp || *fp != TTY_PARITY)
+			__receive_buf(tty, cp, fp, n);
+
+		cp += n;
+		if (fp)
+			fp += n;
+		count -= n;
+		rcvd += n;
+	}
+
+	tty->receive_room = room;
+
+	/* Unthrottle if handling overflow on pty */
+	if (tty->driver->type == TTY_DRIVER_TYPE_PTY) {
+		if (overflow) {
+			tty_set_flow_change(tty, TTY_UNTHROTTLE_SAFE);
+			tty_unthrottle_safe(tty);
+			__tty_set_flow_change(tty, 0);
+		}
+	} else
+		n_tty_check_throttle(tty);
+
+	up_read(&tty->termios_rwsem);
+
+	return rcvd;
+}
