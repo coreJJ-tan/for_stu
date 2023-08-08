@@ -1,0 +1,16 @@
+-The History of TTY
+    - In 1869, the stock ticker was invented. It was an electro-mechanical machine consisting of a typewriter, a long pair of wires and a 
+      ticker tape printer, and its purpose was to distribute stock prices over long distances in realtime. This concept gradually evolved 
+      into the faster, ASCII-based teletype. 
+    - In the era of mainframes and microcomputers, computers were large and expensive, but they were becoming powerful enough to be able 
+      to interact with users in realtime. so many employees at a company would share a single computer, and each person could have their 
+      own terminal connectting to that computer. At the beginning, the teletype was used as the terminal -- this was the name "TTY" comes
+      from.
+    - In 1978, the Digital Equipment Corporation VT100 was the first ANSI X3.64 compliant terminal, it is by all measures the 
+      industry-standard terminal. And the VT100 is also the basis of the X-terminal (xterm) specification.
+    - The VT100 series was followed by the VT200, VT300, VT400, and VT500 series, which add F-keys, an editing keypad, character-set 
+      switching, character-cell line-and-box drawing and math, true graphics (ReGIS, Sixel, Tektronix), multiple sessions, and so on.
+
+- What is Terminal?
+    - A terminal is a device that contains input and ouput.
+        - For a computer, terminal is the combination of a screen and a keyboard.
