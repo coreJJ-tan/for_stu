@@ -1,6 +1,6 @@
-EXPORT_SYMBOL(uart_update_timeout);
-EXPORT_SYMBOL(uart_get_baud_rate);
-EXPORT_SYMBOL(uart_get_divisor);
+EXPORT_SYMBOL(uart_update_timeout); // 更新 FIFO 超时时间
+EXPORT_SYMBOL(uart_get_baud_rate); // 获取波特率
+EXPORT_SYMBOL(uart_get_divisor); // 获取时钟分频系数
 
 #if defined(CONFIG_SERIAL_CORE_CONSOLE) || defined(CONFIG_CONSOLE_POLL)
 EXPORT_SYMBOL_GPL(uart_console_write);
@@ -9,16 +9,16 @@ EXPORT_SYMBOL_GPL(uart_parse_options);
 EXPORT_SYMBOL_GPL(uart_set_options);
 #endif /* CONFIG_SERIAL_CORE_CONSOLE */
 
-EXPORT_SYMBOL(uart_match_port);
+EXPORT_SYMBOL(uart_match_port); // 判断形参的两个端口是否是同一个
 EXPORT_SYMBOL_GPL(uart_handle_dcd_change);
 EXPORT_SYMBOL_GPL(uart_handle_cts_change);
 
-EXPORT_SYMBOL_GPL(uart_insert_char);
-EXPORT_SYMBOL(uart_write_wakeup);
+EXPORT_SYMBOL_GPL(uart_insert_char); // 提交一个字符
+EXPORT_SYMBOL(uart_write_wakeup); // 唤醒使用这个串口的程序，可以发送数据到循环缓冲区
 EXPORT_SYMBOL(uart_register_driver); // 注册一个 uart_driver
 EXPORT_SYMBOL(uart_unregister_driver); // 注销一个 uart_driver
-EXPORT_SYMBOL(uart_suspend_port);
-EXPORT_SYMBOL(uart_resume_port);
+EXPORT_SYMBOL(uart_suspend_port);	// 暂停使用端口
+EXPORT_SYMBOL(uart_resume_port);	// 继续使用端口
 EXPORT_SYMBOL(uart_add_one_port); // 添加一个 uart_port
 EXPORT_SYMBOL(uart_remove_one_port); // 移除一个 uart_port
 
